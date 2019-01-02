@@ -8,7 +8,7 @@
  * kernel, and MM are "allocated" to mark them as not available and to
  * remove them from the hole list.
  *
- 
+
  * The entry points into this file are:
  *   alloc_mem:	allocate a given sized chunk of memory
  *   free_mem:	release a previously allocated chunk of memory
@@ -39,6 +39,8 @@ PRIVATE phys_clicks swap_base;	/* memory offset chosen as swap base */
 PRIVATE phys_clicks swap_maxsize;/* maximum amount of swap "memory" possible */
 PRIVATE struct mproc *in_queue;	/* queue of processes wanting to swap in */
 PRIVATE struct mproc *outswap = &mproc[LOW_USER];  /* outswap candidate? */
+PRIVATE int use_worst_fit; /*if it is set to 1 allocate mem using worst fit alghoritm
+                            * if it is set to 0 allocate mem using standard algorithm*/
 
 FORWARD _PROTOTYPE( void del_slot, (struct hole *prev_ptr, struct hole *hp) );
 FORWARD _PROTOTYPE( void merge, (struct hole *hp)			    );
@@ -58,27 +60,46 @@ phys_clicks clicks;		/* amount of memory requested */
  */
 
   register struct hole *hp, *prev_ptr;
-  phys_clicks old_base;
+  phys_clicks old_base, max;
 
   do {
-	hp = hole_head;
-	while (hp != NIL_HOLE && hp->h_base < swap_base) {
-		if (hp->h_len >= clicks) {
-			/* We found a hole that is big enough.  Use it. */
-			old_base = hp->h_base;	/* remember where it started */
-			hp->h_base += clicks;	/* bite a piece off */
-			hp->h_len -= clicks;	/* ditto */
+  hp = hole_head;
+  if (use_worst_fit == 0) {
+	   while (hp != NIL_HOLE && hp->h_base < swap_base) {
+		     if (hp->h_len >= clicks) {
+			      /* We found a hole that is big enough.  Use it. */
+			      old_base = hp->h_base;	/* remember where it started */
+			      hp->h_base += clicks;	/* bite a piece off */
+			      hp->h_len -= clicks;	/* ditto */
 
-			/* Delete the hole if used up completely. */
-			if (hp->h_len == 0) del_slot(prev_ptr, hp);
+			      /* Delete the hole if used up completely. */
+			      if (hp->h_len == 0) del_slot(prev_ptr, hp);
 
-			/* Return the start address of the acquired block. */
-			return(old_base);
-		}
+			      /* Return the start address of the acquired block. */
+			      return(old_base);
+		    }
+		    prev_ptr = hp;
+		    hp = hp->h_next;
+	   }
+  } else {
+    max = 0;
+    while (hp != NIL_HOLE) {
+      if (hp->h_len > max)
+        max = hp->h_len;
 
-		prev_ptr = hp;
-		hp = hp->h_next;
-	}
+      prev_ptr = hp;
+      hp = hp->h_next;
+    }
+    old_base = hp->h_base;	/* remember where it started */
+    hp->h_base += clicks;	/* bite a piece off */
+    hp->h_len -= clicks;	/* ditto */
+
+    /* Delete the hole if used up completely. */
+    if (hp->h_len == 0) del_slot(prev_ptr, hp);
+
+    /* Return the start address of the acquired block. */
+    return(old_base);
+  }
   } while (swap_out());		/* try to swap some other process out */
   return(NO_MEM);
 }
@@ -412,4 +433,38 @@ PRIVATE int swap_out()
   } while (rmp != outswap);
 
   return(FALSE);	/* no candidate found */
+}
+
+/*===========================================================================*
+ *				do_hole_map			     *
+ *===========================================================================*/
+PUBLIC int do_hole_map(){
+  phys_clicks *buffer, nbytes, npairs = 0;
+  register struct hole *hp;
+  int i = 0;
+
+  buffer = new phys_bytes[nbytes];
+  hp = hole_head;
+
+  while (hp != NIL_HOLE && i == (nbytes - 1)) {
+    buffer[i++] = hp->h_len;
+    buffer[i++] = hp->h_base;
+    hp = hp->h_next;
+    npairs++;
+  }
+  /*Last element of that array has to be equal 0 */
+  buffer[i] = 0;
+
+  sys_copy(MM_PROC_NR, D, (phys_bytes) buffer, who, D, (phys_bytes) mm_in.m1_p1, mm_in.m1_i1);
+
+  return npairs;
+}
+
+ /*===========================================================================*
+  *				do_worst_fit				     *
+  *===========================================================================*/
+PUBLIC int do_worst_fit( void ){
+  use_worst_fit = mm_in.m1_i1;
+
+  return 0;
 }
