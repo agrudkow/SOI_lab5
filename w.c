@@ -2,6 +2,7 @@
 /* wlaczajac/wylaczajac algorytm worst fit w systemie Minix */
 #include <stdlib.h>
 #include <unistd.h>
+#include <stdio.h>
 #include <lib.h>
 
 
@@ -11,9 +12,9 @@ PUBLIC int worst_fit( int w )
   int res;
   message msg;
 
-  if (w != 0 || w != 1) {
-    printf("w.c::worst_fit::Zle dane - argument powinein przyjmowac wartość 0 lub 1");
-    exit(1);
+  if (w != 0 && w != 1) {
+    printf("w.c::worst_fit::Zle dane - argument powinein przyjmowac wartosc 0 lub 1");
+    return 1;
   }
 
   msg.m1_i1 = w;

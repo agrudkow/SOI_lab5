@@ -59,8 +59,8 @@ phys_clicks clicks;		/* amount of memory requested */
  * needed for FORK or EXEC.  Swap other processes out if needed.
  */
 
-  register struct hole *hp, *prev_ptr;
-  phys_clicks old_base, max;
+  register struct hole *hp, *prev_ptr, *max_hole, *prev_max_hole;
+  phys_clicks old_base;
 
   do {
   hp = hole_head;
@@ -82,20 +82,29 @@ phys_clicks clicks;		/* amount of memory requested */
 		    hp = hp->h_next;
 	   }
   } else {
-    max = 0;
-    while (hp != NIL_HOLE) {
-      if (hp->h_len > max)
-        max = hp->h_len;
+    if(hp!=NIL_HOLE){
+			max_hole=hp;
+			prev_max_hole=NIL_HOLE;
+		}
+    else
+      return (NO_MEM);
+
+    while (hp != NIL_HOLE && hp->h_base < swap_base) {
+      if (hp->h_len > max_hole->h_len && hp->h_len >= clicks){
+        max_hole = hp;
+        prev_max_hole = prev_ptr;
+      }
 
       prev_ptr = hp;
       hp = hp->h_next;
     }
-    old_base = hp->h_base;	/* remember where it started */
-    hp->h_base += clicks;	/* bite a piece off */
-    hp->h_len -= clicks;	/* ditto */
+    if (max_hole->h_len <  clicks) continue;
+    old_base = max_hole->h_base;	/* remember where it started */
+    max_hole->h_base += clicks;	/* bite a piece off */
+    max_hole->h_len -= clicks;	/* ditto */
 
     /* Delete the hole if used up completely. */
-    if (hp->h_len == 0) del_slot(prev_ptr, hp);
+    if (max_hole->h_len == 0) del_slot(prev_max_hole, max_hole);
 
     /* Return the start address of the acquired block. */
     return(old_base);
@@ -439,23 +448,27 @@ PRIVATE int swap_out()
  *				do_hole_map			     *
  *===========================================================================*/
 PUBLIC int do_hole_map(){
-  phys_clicks *buffer, nbytes, npairs = 0;
   register struct hole *hp;
-  int i = 0;
+  unsigned int nbytes = (unsigned int)mm_in.m1_i1, npairs = 0, last = 0;
+  char * usr_buff;
+  unsigned int i;
+  usr_buff = mm_in.m1_p1;
+  i = 0;
 
-  buffer = new phys_bytes[nbytes];
   hp = hole_head;
 
-  while (hp != NIL_HOLE && i == (nbytes - 1)) {
-    buffer[i++] = hp->h_len;
-    buffer[i++] = hp->h_base;
+  if (nbytes % 2 == 0)
+    nbytes --;
+
+  while (hp != NIL_HOLE && hp->h_base < swap_base && i < (nbytes - 1)) {
+    sys_copy(MM_PROC_NR, D, (phys_bytes) &hp->h_len, who, D, (phys_bytes)(usr_buff + i * 4), (phys_bytes)1);
+    sys_copy(MM_PROC_NR, D, (phys_bytes) &hp->h_base, who, D, (phys_bytes)(usr_buff + (i + 1) * 4), (phys_bytes)1);
     hp = hp->h_next;
+    i += 2;
     npairs++;
   }
   /*Last element of that array has to be equal 0 */
-  buffer[i] = 0;
-
-  sys_copy(MM_PROC_NR, D, (phys_bytes) buffer, who, D, (phys_bytes) mm_in.m1_p1, mm_in.m1_i1);
+  sys_copy(MM_PROC_NR, D, (phys_bytes) &last, who, D, (phys_bytes)(usr_buff + (i + 1) * 4), (phys_bytes)1);
 
   return npairs;
 }
@@ -464,7 +477,9 @@ PUBLIC int do_hole_map(){
   *				do_worst_fit				     *
   *===========================================================================*/
 PUBLIC int do_worst_fit( void ){
-  use_worst_fit = mm_in.m1_i1;
+  int msg = mm_in.m1_i1;
+  if (msg == 0 || msg == 1)
+    use_worst_fit = msg;
 
   return 0;
 }
