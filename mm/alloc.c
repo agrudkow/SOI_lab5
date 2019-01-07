@@ -450,8 +450,9 @@ PRIVATE int swap_out()
 PUBLIC int do_hole_map(){
   register struct hole *hp;
   phys_clicks buff[NR_HOLES * 2 + 1];
-  unsigned int nbytes = (unsigned int)mm_in.m1_i1, npairs = 0;
+  unsigned int nbytes, npairs = 0;
   unsigned int i;
+  nbytes = (unsigned int)(mm_in.m1_i1 / sizeof(phys_clicks));
   i = 0;
 
   hp = hole_head;
@@ -467,7 +468,7 @@ PUBLIC int do_hole_map(){
   }
   /* Last element of the array has to be 0 */
   buff[i] = 0;
-  sys_copy(MM_PROC_NR, D, (phys_bytes)buff, mm_in.m_source, D, (phys_bytes)mm_in.m1_p1, (phys_bytes)mm_in.m1_i1);
+  sys_copy(MM_PROC_NR, D, (phys_bytes)buff, mm_in.m_source, D, (phys_bytes)mm_in.m1_p1, (phys_bytes)((i + 1) * sizeof(phys_clicks)));
 
   return npairs;
 }
